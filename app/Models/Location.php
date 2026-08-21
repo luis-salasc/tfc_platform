@@ -2,35 +2,38 @@
 
 namespace App\Models;
 
-use Database\Factories\OrganizationFactory;
+use Database\Factories\LocationFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
-class Organization extends Model
+class Location extends Model
 {
-    /** @use HasFactory<OrganizationFactory> */
+    /** @use HasFactory<LocationFactory> */
     use HasFactory, SoftDeletes;
 
     protected $fillable = [
+        'organization_id',
         'name',
         'slug',
-        'legal_name',
-        'tax_identifier',
+        'code',
         'email',
         'phone',
+        'address_line_1',
+        'address_line_2',
+        'city',
+        'state',
+        'postal_code',
         'country_code',
         'timezone',
-        'locale',
-        'currency',
         'is_active',
         'settings',
     ];
 
-    public function locations(): HasMany
+    public function organization(): BelongsTo
     {
-        return $this->hasMany(Location::class);
+        return $this->belongsTo(Organization::class);
     }
 
     protected function casts(): array
