@@ -3,10 +3,13 @@
 namespace App\Services;
 
 use App\Enums\TimeclockEventType;
+use App\Enums\TimeclockCorrectionStatus;
+use App\Enums\TimeclockCorrectionType;
 use App\Exceptions\TimeclockConfigurationException;
 use App\Models\Location;
 use App\Models\Organization;
 use App\Models\TimeclockEvent;
+use App\Models\TimeclockCorrectionRequest;
 use App\Models\User;
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
@@ -88,6 +91,130 @@ class TimeclockService
         return ['location' => $location, 'events' => $events, 'summary' => $this->summarize($events, $location, $date)];
     }
 
+    public function createCorrectionRequest(User $employee, Organization $organization, Location $location, array $data): TimeclockCorrectionRequest
+    {
+        $type = TimeclockCorrectionType::from($data['correction_type']);
+        $original = null;
+        if ($type !== TimeclockCorrectionType::Add) {
+            $original = TimeclockEvent::query()
+                ->where('id', $data['original_event_id'])
+                ->where('organization_id', $organization->id)
+                ->where('user_id', $employee->id)
+                ->firstOrFail();
+            abort_unless($this->eventBelongsToDate($original, $location, $data['local_date']), 422);
+        }
+
+        $proposedAt = null;
+        if ($type !== TimeclockCorrectionType::Annul) {
+            $localProposedAt = CarbonImmutable::parse($data['proposed_occurred_at'], $location->timezone);
+            abort_unless($localProposedAt->toDateString() === $data['local_date'], 422);
+            $proposedAt = $localProposedAt->utc();
+        }
+
+        return TimeclockCorrectionRequest::create([
+            'organization_id' => $organization->id,
+            'location_id' => $location->id,
+            'employee_user_id' => $employee->id,
+            'requested_by_user_id' => $employee->id,
+            'local_date' => $data['local_date'],
+            'correction_type' => $type,
+            'original_event_id' => $original?->id,
+            'proposed_event_type' => $data['proposed_event_type'] ?? null,
+            'proposed_occurred_at' => $proposedAt,
+            'reason' => $data['reason'],
+            'status' => TimeclockCorrectionStatus::Pending,
+        ]);
+    }
+
+    public function resolveCorrection(TimeclockCorrectionRequest $correction, User $resolver, bool $approve, ?string $comment): TimeclockCorrectionRequest
+    {
+        return DB::transaction(function () use ($correction, $resolver, $approve, $comment): TimeclockCorrectionRequest {
+            $correction = TimeclockCorrectionRequest::query()->whereKey($correction->id)->lockForUpdate()->firstOrFail();
+            if ($correction->status !== TimeclockCorrectionStatus::Pending) {
+                throw new InvalidArgumentException('Esta solicitud ya fue resuelta.');
+            }
+
+            if (! $approve) {
+                $correction->update(['status' => TimeclockCorrectionStatus::Rejected, 'resolved_by_user_id' => $resolver->id, 'resolved_at' => now('UTC'), 'resolution_comment' => $comment]);
+
+                return $correction->refresh();
+            }
+
+            if ($correction->original_event_id && TimeclockCorrectionRequest::query()
+                ->where('original_event_id', $correction->original_event_id)
+                ->where('status', TimeclockCorrectionStatus::Approved)
+                ->exists()) {
+                abort(422, 'El evento ya tiene una corrección aprobada.');
+            }
+
+            $location = $correction->location()->firstOrFail();
+            $organization = $correction->organization()->firstOrFail();
+            $originals = $this->originalEventsForDate($correction->employee, $organization, $location, $correction->local_date->toDateString());
+            $approved = TimeclockCorrectionRequest::query()
+                ->where('organization_id', $correction->organization_id)
+                ->where('employee_user_id', $correction->employee_user_id)
+                ->where('local_date', $correction->local_date)
+                ->where('status', TimeclockCorrectionStatus::Approved)
+                ->get()
+                ->push($correction);
+            abort_unless($this->validSequence($this->applyCorrections($originals, $approved)), 422, 'La corrección produciría una secuencia de fichaje inválida.');
+
+            $correction->update(['status' => TimeclockCorrectionStatus::Approved, 'resolved_by_user_id' => $resolver->id, 'resolved_at' => now('UTC'), 'resolution_comment' => $comment]);
+            if ($correction->original_event_id) {
+                TimeclockCorrectionRequest::query()
+                    ->where('original_event_id', $correction->original_event_id)
+                    ->where('status', TimeclockCorrectionStatus::Pending)
+                    ->where('id', '<>', $correction->id)
+                    ->update(['status' => TimeclockCorrectionStatus::Rejected, 'resolved_by_user_id' => $resolver->id, 'resolved_at' => now('UTC'), 'resolution_comment' => 'Solicitud incompatible con otra corrección aprobada.']);
+            }
+
+            return $correction->refresh();
+        });
+    }
+
+    /** @return Collection<int, TimeclockEvent> */
+    public function effectiveEventsForDate(User $user, Organization $organization, Location $location, string $date): Collection
+    {
+        $originals = $this->originalEventsForDate($user, $organization, $location, $date);
+        $corrections = TimeclockCorrectionRequest::query()
+            ->where('organization_id', $organization->id)
+            ->where('employee_user_id', $user->id)
+            ->where('local_date', $date)
+            ->where('status', TimeclockCorrectionStatus::Approved)
+            ->get();
+
+        return $this->applyCorrections($originals, $corrections);
+    }
+
+    /** @return Collection<int, TimeclockEvent> */
+    public function eventsForCorrectionForm(User $user, Organization $organization, Location $location): Collection
+    {
+        return $this->originalEventsForDate($user, $organization, $location, CarbonImmutable::now($location->timezone)->toDateString());
+    }
+
+    /** @return Collection<int, TimeclockEvent> */
+    public function eventsForCorrectionDate(User $user, Organization $organization, Location $location, string $date): Collection
+    {
+        return $this->originalEventsForDate($user, $organization, $location, $date);
+    }
+
+    /** @return Collection<int, array<string, mixed>> */
+    public function rangeReport(User $user, Organization $organization, Location $location, string $from, string $to): Collection
+    {
+        $date = CarbonImmutable::createFromFormat('!Y-m-d', $to, $location->timezone);
+        $first = CarbonImmutable::createFromFormat('!Y-m-d', $from, $location->timezone);
+        $rows = collect();
+        for (; $date->greaterThanOrEqualTo($first); $date = $date->subDay()) {
+            $dateString = $date->toDateString();
+            $events = $this->effectiveEventsForDate($user, $organization, $location, $dateString);
+            if ($events->isNotEmpty()) {
+                $rows->push($this->summarize($events, $location, $dateString) + ['employee' => $user->name, 'has_corrections' => $events->contains(fn (TimeclockEvent $event): bool => $event->source === 'correction')]);
+            }
+        }
+
+        return $rows;
+    }
+
     public function record(User $user, Organization $organization, TimeclockEventType $requestedType): TimeclockEvent
     {
         $location = $this->activeLocation($organization);
@@ -134,11 +261,33 @@ class TimeclockService
             $query->lockForUpdate();
         }
 
-        return $query->get();
+        $originals = $query->get();
+        $corrections = TimeclockCorrectionRequest::query()
+            ->where('organization_id', $organization->id)
+            ->where('employee_user_id', $user->id)
+            ->where('local_date', $localNow->toDateString())
+            ->where('status', TimeclockCorrectionStatus::Approved)
+            ->get();
+
+        return $this->applyCorrections($originals, $corrections);
     }
 
     /** @return Collection<int, TimeclockEvent> */
     private function eventsForDate(User $user, Organization $organization, Location $location, string $date): Collection
+    {
+        $originals = $this->originalEventsForDate($user, $organization, $location, $date);
+        $corrections = TimeclockCorrectionRequest::query()
+            ->where('organization_id', $organization->id)
+            ->where('employee_user_id', $user->id)
+            ->where('local_date', $date)
+            ->where('status', TimeclockCorrectionStatus::Approved)
+            ->get();
+
+        return $this->applyCorrections($originals, $corrections);
+    }
+
+    /** @return Collection<int, TimeclockEvent> */
+    private function originalEventsForDate(User $user, Organization $organization, Location $location, string $date): Collection
     {
         [$start, $end] = $this->utcBoundsForDate($date, $location->timezone);
 
@@ -150,6 +299,55 @@ class TimeclockService
             ->orderBy('occurred_at')
             ->orderBy('id')
             ->get();
+    }
+
+    /** @return Collection<int, TimeclockEvent> */
+    private function applyCorrections(Collection $originals, Collection $corrections): Collection
+    {
+        $events = $originals->keyBy('id');
+        foreach ($corrections as $correction) {
+            if ($correction->original_event_id) {
+                $events->forget($correction->original_event_id);
+            }
+        }
+
+        foreach ($corrections as $correction) {
+            if ($correction->correction_type === TimeclockCorrectionType::Annul) {
+                continue;
+            }
+            $virtual = new TimeclockEvent([
+                'id' => -$correction->id,
+                'organization_id' => $correction->organization_id,
+                'location_id' => $correction->location_id,
+                'user_id' => $correction->employee_user_id,
+                'event_type' => $correction->proposed_event_type,
+                'occurred_at' => $correction->proposed_occurred_at,
+                'source' => 'correction',
+            ]);
+            $events->put($virtual->id, $virtual);
+        }
+
+        return $events->sortBy(fn (TimeclockEvent $event) => [$event->occurred_at->getTimestamp(), $event->id])->values();
+    }
+
+    private function validSequence(Collection $events): bool
+    {
+        $state = null;
+        foreach ($events as $event) {
+            if (! in_array($event->event_type, $this->allowedNextEvents($state), true)) {
+                return false;
+            }
+            $state = $event->event_type;
+        }
+
+        return true;
+    }
+
+    private function eventBelongsToDate(TimeclockEvent $event, Location $location, string $date): bool
+    {
+        [$start, $end] = $this->utcBoundsForDate($date, $location->timezone);
+
+        return $event->occurred_at->greaterThanOrEqualTo($start) && $event->occurred_at->lessThan($end);
     }
 
     private function hasEventsForDate(User $user, Organization $organization, Location $location, string $date): bool

@@ -48,5 +48,6 @@
             </tbody></table></div>
             <div class="mt-5">{{ $history->links() }}</div>
         </section>
+        @if(request()->attributes->get('organizationMembership') && auth()->user()->canWithinOrganization('timeclock.request_correction', request()->attributes->get('organizationMembership')))<a class="tfc-text-button" href="{{ route('timeclock.corrections.index') }}">Mis solicitudes de corrección</a>@endif
     </div>
 </x-layouts::app>

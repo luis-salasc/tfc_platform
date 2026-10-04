@@ -7,7 +7,7 @@
         <a href="{{ route('dashboard') }}" class="tfc-sidebar-brand"><span>THE</span><strong>FITNESS<br>CLUB</strong></a>
         <div class="tfc-mobile-context"><span>&Aacute;rea privada</span><strong>{{ $title ?? 'Panel' }}</strong></div>
         <details class="tfc-mobile-menu"><summary aria-label="Abrir men&uacute;">Men&uacute;</summary><nav aria-label="Navegaci&oacute;n m&oacute;vil">
-            <a href="{{ route('dashboard') }}">Dashboard</a><a href="{{ route('miembros.create') }}">Nuevo miembro</a><a href="{{ route('miembros.index') }}">Ver miembros</a><a href="{{ route('attendance.index') }}">Asistencia</a>@if($membership && auth()->user()->canWithinOrganization('timeclock.view_own', $membership))<a href="{{ route('timeclock.index') }}">Mi fichaje</a>@endif
+            <a href="{{ route('dashboard') }}">Dashboard</a><a href="{{ route('miembros.create') }}">Nuevo miembro</a><a href="{{ route('miembros.index') }}">Ver miembros</a><a href="{{ route('attendance.index') }}">Asistencia</a>@if($membership && auth()->user()->canWithinOrganization('timeclock.view_own', $membership))<a href="{{ route('timeclock.index') }}">Mi fichaje</a>@endif @if($membership && auth()->user()->canWithinOrganization('timeclock.view', $membership))<a href="{{ route('timeclock.management.index') }}">Fichajes</a>@endif
             @if (auth()->user()->is_platform_admin)<a href="{{ route('platform.index') }}">Plataforma</a>@endif
             @if ($membership && in_array($membership->role->value, ['owner', 'admin', 'trainer']))<a href="{{ route('payments.index') }}">Pagos</a>@endif
             <a href="{{ route('club-settings.edit') }}">Configuraci&oacute;n</a>@if ($membership && in_array($membership->role->value, ['owner', 'admin']))<a href="{{ route('team.index') }}">Admin. usuarios</a>@endif
@@ -22,7 +22,8 @@
                 <a href="{{ route('miembros.create') }}" @class(['is-active' => request()->routeIs('miembros.create')])>Nuevo miembro</a>
                 <a href="{{ route('miembros.index') }}" @class(['is-active' => request()->routeIs('miembros.index', 'miembros.show', 'miembros.edit')])>Ver miembros</a>
                 <a href="{{ route('attendance.index') }}" @class(['is-active' => request()->routeIs('attendance.*')])>Asistencia</a>
-                @if($membership && auth()->user()->canWithinOrganization('timeclock.view_own', $membership))<a href="{{ route('timeclock.index') }}" @class(['is-active' => request()->routeIs('timeclock.*')])>Mi fichaje</a>@endif
+                @if($membership && auth()->user()->canWithinOrganization('timeclock.view_own', $membership))<a href="{{ route('timeclock.index') }}" @class(['is-active' => request()->routeIs('timeclock.index', 'timeclock.day', 'timeclock.corrections.*')])>Mi fichaje</a>@endif
+                @if($membership && auth()->user()->canWithinOrganization('timeclock.view', $membership))<a href="{{ route('timeclock.management.index') }}" @class(['is-active' => request()->routeIs('timeclock.management.*')])>Fichajes</a>@endif
                 @if (auth()->user()->is_platform_admin)<a href="{{ route('platform.index') }}" @class(['is-active' => request()->routeIs('platform.*')])>Plataforma</a>@endif
                 @if ($membership && in_array($membership->role->value, ['owner', 'admin', 'trainer']))<a href="{{ route('payments.index') }}" @class(['is-active' => request()->routeIs('payments.*')])>Pagos</a>@endif
                 <a href="{{ route('club-settings.edit') }}" @class(['is-active' => request()->routeIs('club-settings.*')])>Configuración</a>

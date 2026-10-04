@@ -18,6 +18,8 @@ use App\Http\Controllers\PlatformController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\TeamController;
 use App\Http\Controllers\TimeclockController;
+use App\Http\Controllers\TimeclockCorrectionController;
+use App\Http\Controllers\TimeclockManagementController;
 use Illuminate\Support\Facades\Route;
 
 Route::view('/', 'welcome')->name('home');
@@ -62,8 +64,17 @@ Route::middleware(['auth', 'verified', 'organization.access'])->group(function (
     Route::get('asistencias/buscar-miembros', [AttendanceController::class, 'search'])->name('attendance.members.search');
     Route::post('asistencias', [AttendanceController::class, 'store'])->name('attendance.store');
     Route::get('mi-fichaje', [TimeclockController::class, 'index'])->name('timeclock.index');
+    Route::get('mi-fichaje/correcciones', [TimeclockCorrectionController::class, 'index'])->name('timeclock.corrections.index');
+    Route::get('mi-fichaje/correcciones/crear', [TimeclockCorrectionController::class, 'create'])->name('timeclock.corrections.create');
+    Route::post('mi-fichaje/correcciones', [TimeclockCorrectionController::class, 'store'])->name('timeclock.corrections.store');
+    Route::get('mi-fichaje/correcciones/{correction}', [TimeclockCorrectionController::class, 'show'])->name('timeclock.corrections.show');
     Route::get('mi-fichaje/{date}', [TimeclockController::class, 'showDay'])->name('timeclock.day');
     Route::post('mi-fichaje/eventos', [TimeclockController::class, 'store'])->name('timeclock.events.store');
+    Route::get('fichajes', [TimeclockManagementController::class, 'index'])->name('timeclock.management.index');
+    Route::get('fichajes/correcciones', [TimeclockManagementController::class, 'corrections'])->name('timeclock.management.corrections');
+    Route::get('fichajes/correcciones/{correction}', [TimeclockManagementController::class, 'correction'])->name('timeclock.management.correction');
+    Route::post('fichajes/correcciones/{correction}/aprobar', [TimeclockCorrectionController::class, 'approve'])->name('timeclock.management.corrections.approve');
+    Route::post('fichajes/correcciones/{correction}/rechazar', [TimeclockCorrectionController::class, 'reject'])->name('timeclock.management.corrections.reject');
     Route::get('pagos', [PaymentsController::class, 'index'])->name('payments.index');
     Route::get('configuracion', [SettingsController::class, 'edit'])->name('club-settings.edit');
     Route::put('configuracion', [SettingsController::class, 'update'])->name('club-settings.update');

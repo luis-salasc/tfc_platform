@@ -45,6 +45,10 @@ class User extends Authenticatable implements PasskeyUser
 
     public function canWithinOrganization(string $permission, OrganizationMembership $membership): bool
     {
+        if ($permission === 'timeclock.resolve_corrections') {
+            return $this->can($permission) || in_array($membership->role, [OrganizationRole::Owner, OrganizationRole::Admin], true);
+        }
+
         return $this->can($permission)
             || in_array($membership->role, [OrganizationRole::Owner, OrganizationRole::Admin, OrganizationRole::Trainer], true);
     }
