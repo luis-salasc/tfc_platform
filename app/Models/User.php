@@ -3,6 +3,7 @@
 namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
+use App\Enums\OrganizationRole;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
@@ -40,6 +41,12 @@ class User extends Authenticatable implements PasskeyUser
     public function organizationMemberships(): HasMany
     {
         return $this->hasMany(OrganizationMembership::class);
+    }
+
+    public function canWithinOrganization(string $permission, OrganizationMembership $membership): bool
+    {
+        return $this->can($permission)
+            || in_array($membership->role, [OrganizationRole::Owner, OrganizationRole::Admin, OrganizationRole::Trainer], true);
     }
 
     /**

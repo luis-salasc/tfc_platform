@@ -20,6 +20,7 @@ class OrganizationMembership extends Model
         'invited_by_user_id',
         'role',
         'status',
+        'time_tracking_required',
         'invited_at',
         'joined_at',
         'suspended_at',
@@ -51,6 +52,7 @@ class OrganizationMembership extends Model
         return [
             'role' => OrganizationRole::class,
             'status' => MembershipStatus::class,
+            'time_tracking_required' => 'boolean',
             'invited_at' => 'datetime',
             'joined_at' => 'datetime',
             'suspended_at' => 'datetime',

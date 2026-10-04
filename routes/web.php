@@ -17,6 +17,7 @@ use App\Http\Controllers\PaymentsController;
 use App\Http\Controllers\PlatformController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\TeamController;
+use App\Http\Controllers\TimeclockController;
 use Illuminate\Support\Facades\Route;
 
 Route::view('/', 'welcome')->name('home');
@@ -60,6 +61,9 @@ Route::middleware(['auth', 'verified', 'organization.access'])->group(function (
     Route::get('asistencias', [AttendanceController::class, 'index'])->name('attendance.index');
     Route::get('asistencias/buscar-miembros', [AttendanceController::class, 'search'])->name('attendance.members.search');
     Route::post('asistencias', [AttendanceController::class, 'store'])->name('attendance.store');
+    Route::get('mi-fichaje', [TimeclockController::class, 'index'])->name('timeclock.index');
+    Route::get('mi-fichaje/{date}', [TimeclockController::class, 'showDay'])->name('timeclock.day');
+    Route::post('mi-fichaje/eventos', [TimeclockController::class, 'store'])->name('timeclock.events.store');
     Route::get('pagos', [PaymentsController::class, 'index'])->name('payments.index');
     Route::get('configuracion', [SettingsController::class, 'edit'])->name('club-settings.edit');
     Route::put('configuracion', [SettingsController::class, 'update'])->name('club-settings.update');

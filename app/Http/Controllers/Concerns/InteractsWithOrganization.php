@@ -32,11 +32,7 @@ trait InteractsWithOrganization
 
     protected function requirePermission(Request $request, string $permission): void
     {
-        abort_unless(
-            $request->user()?->can($permission)
-            || in_array($this->membership($request)->role, [OrganizationRole::Owner, OrganizationRole::Admin, OrganizationRole::Trainer], true),
-            403,
-        );
+        abort_unless($request->user()?->canWithinOrganization($permission, $this->membership($request)), 403);
     }
 
     protected function member(Request $request, Member $member): Member
