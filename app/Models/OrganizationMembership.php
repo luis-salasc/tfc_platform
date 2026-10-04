@@ -41,6 +41,11 @@ class OrganizationMembership extends Model
         return $this->belongsTo(User::class, 'invited_by_user_id');
     }
 
+    public function scopeActive($query)
+    {
+        return $query->where('status', MembershipStatus::Active);
+    }
+
     protected function casts(): array
     {
         return [

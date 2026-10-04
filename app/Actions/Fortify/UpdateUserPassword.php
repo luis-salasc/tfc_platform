@@ -6,24 +6,27 @@ use App\Models\User;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
-use Laravel\Fortify\Contracts\ResetsUserPasswords;
+use Laravel\Fortify\Contracts\UpdatesUserPasswords;
 
-class ResetUserPassword implements ResetsUserPasswords
+class UpdateUserPassword implements UpdatesUserPasswords
 {
     use PasswordValidationRules;
 
     /**
-     * Validate and reset the user's forgotten password.
+     * Validate and update the user's password.
      *
      * @param  array<string, string>  $input
      *
      * @throws ValidationException
      */
-    public function reset(User $user, array $input): void
+    public function update(User $user, array $input): void
     {
         Validator::make($input, [
+            'current_password' => ['required', 'string', 'current_password:web'],
             'password' => $this->passwordRules(),
-        ])->validate();
+        ], [
+            'current_password.current_password' => __('The provided password does not match your current password.'),
+        ])->validateWithBag('updatePassword');
 
         $user->forceFill([
             'password' => Hash::make($input['password']),
