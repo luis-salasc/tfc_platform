@@ -31,7 +31,9 @@
                 <section data-member-panel="qr" class="hidden"><div class="tfc-member-grid"><article><h2>Carnet de acceso</h2><p class="tfc-muted">Genera el QR para guardarlo en el móvil, imprimirlo o compartirlo por WhatsApp.</p>@if($canIssueCard)<a class="tfc-button tfc-button--small mt-4" href="{{ route('members.card.show', $member) }}">Abrir carnet →</a>@else<p class="tfc-member-note">Solicita a un responsable que genere el carnet.</p>@endif</article><article><h2>Seguridad</h2><p class="tfc-muted">El código es personal. Si se pierde o se comparte por error, puede regenerarse y el anterior dejará de funcionar.</p>@if($member->check_in_token_rotated_at)<p class="tfc-muted mt-4">Regenerado el {{ $member->check_in_token_rotated_at->format('d/m/Y H:i') }}.</p>@endif</article></div></section>
                 @include('members.partials.training-plan')
                 @include('members.partials.incidents')
-                @include('members.partials.portal-access')
+                @if (config('member-portal.enabled') === true)
+                    @include('members.partials.portal-access')
+                @endif
             </div>
     </section>
 </div>

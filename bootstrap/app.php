@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Middleware\EnsureOrganizationAccess;
+use App\Http\Middleware\EnsureMemberPortalEnabled;
 use App\Http\Middleware\EnsurePlatformAdmin;
 use App\Http\Middleware\SecurityHeaders;
 use Illuminate\Foundation\Application;
@@ -19,6 +20,7 @@ return Application::configure(basePath: dirname(__DIR__))
 
         $middleware->alias([
             'organization.access' => EnsureOrganizationAccess::class,
+            'member.portal.enabled' => EnsureMemberPortalEnabled::class,
             'platform.admin' => EnsurePlatformAdmin::class,
         ]);
     })

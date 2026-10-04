@@ -20,8 +20,8 @@ use App\Http\Controllers\TeamController;
 use Illuminate\Support\Facades\Route;
 
 Route::view('/', 'welcome')->name('home');
-Route::get('activar-acceso/{token}', [ActivateMemberPortalController::class, 'create'])->middleware('throttle:10,1')->name('portal.activate');
-Route::post('activar-acceso/{token}', [ActivateMemberPortalController::class, 'store'])->middleware('throttle:10,1')->name('portal.activate.store');
+Route::get('activar-acceso/{token}', [ActivateMemberPortalController::class, 'create'])->middleware(['throttle:10,1', 'member.portal.enabled'])->name('portal.activate');
+Route::post('activar-acceso/{token}', [ActivateMemberPortalController::class, 'store'])->middleware(['throttle:10,1', 'member.portal.enabled'])->name('portal.activate.store');
 Route::view('/aprendizaje', 'aprendizaje', ['nombreClub' => 'The Fitness Club'])->name('aprendizaje');
 
 Route::get('kiosco/{organization:slug}', [KioskController::class, 'show'])->name('kiosk.show');
@@ -48,7 +48,7 @@ Route::middleware(['auth', 'verified', 'organization.access'])->group(function (
     Route::post('miembros/{member}/planes-entrenamiento', [MemberTrainingPlanController::class, 'store'])->name('members.training-plans.store');
     Route::put('miembros/{member}/planes-entrenamiento/{trainingPlan}', [MemberTrainingPlanController::class, 'update'])->name('members.training-plans.update');
     Route::post('miembros/{member}/planes-entrenamiento/{trainingPlan}/archivar', [MemberTrainingPlanController::class, 'archive'])->name('members.training-plans.archive');
-    Route::post('miembros/{member}/acceso-portal', [MemberPortalInvitationController::class, 'store'])->name('members.portal-invitations.store');
+    Route::post('miembros/{member}/acceso-portal', [MemberPortalInvitationController::class, 'store'])->middleware('member.portal.enabled')->name('members.portal-invitations.store');
     Route::post('miembros/{member}/incidencias', [MemberIncidentController::class, 'store'])->name('members.incidents.store');
     Route::post('miembros/{member}/incidencias/{incident}/resolver', [MemberIncidentController::class, 'resolve'])->name('members.incidents.resolve');
     Route::post('miembros/{member}/pagos', [MemberPaymentController::class, 'store'])->name('members.payments.store');
