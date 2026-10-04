@@ -1,101 +1,76 @@
 <!DOCTYPE html>
 <html lang="{{ str_replace('_', '-', app()->getLocale()) }}" class="dark">
-    <head>
-        @include('partials.head')
-    </head>
-    <body class="min-h-screen bg-white dark:bg-zinc-800">
-        <flux:sidebar sticky collapsible="mobile" class="border-e border-zinc-200 bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900">
-            <flux:sidebar.header>
-                <x-app-logo :sidebar="true" href="{{ route('dashboard') }}" wire:navigate />
-                <flux:sidebar.collapse class="lg:hidden" />
-            </flux:sidebar.header>
+<head>@include('partials.head')</head>
+<body class="tfc-app-body">
+    @php($membership = request()->attributes->get('organizationMembership'))
+    <header class="tfc-mobile-header">
+        <a href="{{ route('dashboard') }}" class="tfc-sidebar-brand"><span>THE</span><strong>FITNESS<br>CLUB</strong></a>
+        <div class="tfc-mobile-context"><span>&Aacute;rea privada</span><strong>{{ $title ?? 'Panel' }}</strong></div>
+        <details class="tfc-mobile-menu"><summary aria-label="Abrir men&uacute;">Men&uacute;</summary><nav aria-label="Navegaci&oacute;n m&oacute;vil">
+            <a href="{{ route('dashboard') }}">Dashboard</a><a href="{{ route('miembros.create') }}">Nuevo miembro</a><a href="{{ route('miembros.index') }}">Ver miembros</a><a href="{{ route('attendance.index') }}">Asistencia</a>
+            @if (auth()->user()->is_platform_admin)<a href="{{ route('platform.index') }}">Plataforma</a>@endif
+            @if ($membership && in_array($membership->role->value, ['owner', 'admin', 'trainer']))<a href="{{ route('payments.index') }}">Pagos</a>@endif
+            <a href="{{ route('club-settings.edit') }}">Configuraci&oacute;n</a>@if ($membership && in_array($membership->role->value, ['owner', 'admin']))<a href="{{ route('team.index') }}">Admin. usuarios</a>@endif
+        </nav></details>
+    </header>
+    <div class="tfc-app-shell">
+        <aside class="tfc-app-sidebar">
+            <a href="{{ route('dashboard') }}" class="tfc-sidebar-brand"><span>THE</span><strong>FITNESS<br>CLUB</strong></a>
+            <p class="tfc-sidebar-caption">ÁREA PRIVADA TFC</p>
+            <nav class="tfc-app-nav" aria-label="Navegación principal">
+                <a href="{{ route('dashboard') }}" @class(['is-active' => request()->routeIs('dashboard')])>Dashboard</a>
+                <a href="{{ route('miembros.create') }}" @class(['is-active' => request()->routeIs('miembros.create')])>Nuevo miembro</a>
+                <a href="{{ route('miembros.index') }}" @class(['is-active' => request()->routeIs('miembros.index', 'miembros.show', 'miembros.edit')])>Ver miembros</a>
+                <a href="{{ route('attendance.index') }}" @class(['is-active' => request()->routeIs('attendance.*')])>Asistencia</a>
+                @if (auth()->user()->is_platform_admin)<a href="{{ route('platform.index') }}" @class(['is-active' => request()->routeIs('platform.*')])>Plataforma</a>@endif
+                @if ($membership && in_array($membership->role->value, ['owner', 'admin', 'trainer']))<a href="{{ route('payments.index') }}" @class(['is-active' => request()->routeIs('payments.*')])>Pagos</a>@endif
+                <a href="{{ route('club-settings.edit') }}" @class(['is-active' => request()->routeIs('club-settings.*')])>Configuración</a>
+                @if ($membership && in_array($membership->role->value, ['owner', 'admin']))<a href="{{ route('team.index') }}" @class(['is-active' => request()->routeIs('team.*')])>Admin. usuarios</a>@endif
+            </nav>
+            <div class="tfc-sidebar-footer">
+                @if ($membership)<a href="{{ route('kiosk.show', $membership->organization) }}" target="_blank" class="tfc-kiosk-link">↗ Abrir Kiosco</a>@endif
+                <div class="tfc-user-name">{{ auth()->user()->name }}</div><div class="tfc-user-email">{{ auth()->user()->email }}</div>
+                <form method="POST" action="{{ route('logout') }}">@csrf<button type="submit" class="tfc-logout">Cerrar sesión →</button></form>
+            </div>
+        </aside>
+        <main class="tfc-app-main"><header class="tfc-desktop-context"><span>&Aacute;rea privada TFC</span><strong>{{ $title ?? 'Panel' }}</strong></header>{{ $slot }}</main>
+    </div>
+    <script>
+    document.addEventListener('input', event => { const form = event.target.closest('[data-live-filter]'); if (!form) return; clearTimeout(form._filterTimer); form._filterTimer = setTimeout(() => form.requestSubmit(), 300); });
+    document.addEventListener('change', event => { const form = event.target.closest('[data-live-filter]'); if (form) form.requestSubmit(); });
 
-            <flux:sidebar.nav>
-                <flux:sidebar.group :heading="__('Platform')" class="grid">
-                    <flux:sidebar.item icon="home" :href="route('dashboard')" :current="request()->routeIs('dashboard')" wire:navigate>
-                        {{ __('Dashboard') }}
-                    </flux:sidebar.item>
-                </flux:sidebar.group>
-            </flux:sidebar.nav>
-
-            <flux:spacer />
-
-            <flux:sidebar.nav>
-                <flux:sidebar.item icon="folder-git-2" href="https://github.com/laravel/livewire-starter-kit" target="_blank">
-                    {{ __('Repository') }}
-                </flux:sidebar.item>
-
-                <flux:sidebar.item icon="book-open-text" href="https://laravel.com/docs/starter-kits#livewire" target="_blank">
-                    {{ __('Documentation') }}
-                </flux:sidebar.item>
-            </flux:sidebar.nav>
-
-            <x-desktop-user-menu class="hidden lg:block" :name="auth()->user()->name" />
-        </flux:sidebar>
-
-        <!-- Mobile User Menu -->
-        <flux:header class="lg:hidden">
-            <flux:sidebar.toggle class="lg:hidden" icon="bars-2" inset="left" />
-
-            <flux:spacer />
-
-            <flux:dropdown position="top" align="end">
-                <flux:profile
-                    :initials="auth()->user()->initials()"
-                    icon-trailing="chevron-down"
-                />
-
-                <flux:menu>
-                    <flux:menu.radio.group>
-                        <div class="p-0 text-sm font-normal">
-                            <div class="flex items-center gap-2 px-1 py-1.5 text-start text-sm">
-                                <flux:avatar
-                                    :name="auth()->user()->name"
-                                    :initials="auth()->user()->initials()"
-                                />
-
-                                <div class="grid flex-1 text-start text-sm leading-tight">
-                                    <flux:heading class="truncate">{{ auth()->user()->name }}</flux:heading>
-                                    <flux:text class="truncate">{{ auth()->user()->email }}</flux:text>
-                                </div>
-                            </div>
-                        </div>
-                    </flux:menu.radio.group>
-
-                    <flux:menu.separator />
-
-                    <flux:menu.radio.group>
-                        <flux:menu.item :href="route('profile.edit')" icon="cog" wire:navigate>
-                            {{ __('Settings') }}
-                        </flux:menu.item>
-                    </flux:menu.radio.group>
-
-                    <flux:menu.separator />
-
-                    <form method="POST" action="{{ route('logout') }}" class="w-full">
-                        @csrf
-                        <flux:menu.item
-                            as="button"
-                            type="submit"
-                            icon="arrow-right-start-on-rectangle"
-                            class="w-full cursor-pointer"
-                            data-test="logout-button"
-                        >
-                            {{ __('Log out') }}
-                        </flux:menu.item>
-                    </form>
-                </flux:menu>
-            </flux:dropdown>
-        </flux:header>
-
-        {{ $slot }}
-
-        @persist('toast')
-            <flux:toast.group>
-                <flux:toast />
-            </flux:toast.group>
-        @endpersist
-
-        @fluxScripts
-    </body>
+    (() => {
+        const forms = [...document.querySelectorAll('form.tfc-form, .tfc-form form, form[data-registration-wizard]')]
+            .filter(form => form.method.toLowerCase() !== 'get' && !form.matches('[data-live-filter], [data-no-unsaved-warning]'));
+        let allowNavigation = false;
+        const hasChanges = () => forms.some(form => form.dataset.dirty === 'true' && form.dataset.submitting !== 'true');
+        const markDirty = event => {
+            const form = event.target.closest('form');
+            if (!forms.includes(form) || event.target.type === 'hidden' || event.target.disabled) return;
+            form.dataset.dirty = 'true';
+        };
+        forms.forEach(form => {
+            form.addEventListener('input', markDirty);
+            form.addEventListener('change', markDirty);
+            form.addEventListener('reset', () => window.setTimeout(() => { form.dataset.dirty = 'false'; }, 0));
+        });
+        document.addEventListener('submit', event => {
+            const form = event.target;
+            if (!forms.includes(form) || event.defaultPrevented || !form.checkValidity() || form.dataset.submitting === 'true') return;
+            form.dataset.submitting = 'true';
+        });
+        window.addEventListener('beforeunload', event => {
+            if (!allowNavigation && hasChanges()) { event.preventDefault(); event.returnValue = ''; }
+        });
+        document.addEventListener('click', event => {
+            const link = event.target.closest('a[href]');
+            if (!link || link.target === '_blank' || link.hasAttribute('download') || !hasChanges()) return;
+            const destination = new URL(link.href, window.location.href);
+            if (destination.href === window.location.href || destination.hash && destination.pathname === window.location.pathname) return;
+            if (!window.confirm('Tienes cambios sin guardar. Si sales, se perderán. ¿Quieres continuar?')) { event.preventDefault(); return; }
+            allowNavigation = true;
+        });
+    })();
+    </script>
+</body>
 </html>
