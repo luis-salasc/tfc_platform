@@ -8,14 +8,19 @@ use App\Enums\MemberStatus;
 use App\Enums\OrganizationRole;
 use App\Http\Controllers\Concerns\InteractsWithOrganization;
 use App\Models\MemberPreRegistration;
+use App\Services\MemberPreRegistrationFinalizer;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
 class MemberPreRegistrationController extends Controller
 {
     use InteractsWithOrganization;
+
+    private const CONSENT_VERSION = '2026-09-11';
 
     private const OBJECTIVE_VALUES = [
         'mejorar_salud', 'subir_peso', 'bajar_peso', 'disminuir_volumen', 'tonificar', 'mejorar_postura',
@@ -28,7 +33,7 @@ class MemberPreRegistrationController extends Controller
     {
         $this->requireRole($request, OrganizationRole::Owner, OrganizationRole::Admin, OrganizationRole::Trainer, OrganizationRole::Receptionist);
 
-        return $this->formView(new MemberPreRegistration);
+        return $this->formView(new MemberPreRegistration, $request);
     }
 
     public function store(Request $request)
@@ -37,7 +42,11 @@ class MemberPreRegistrationController extends Controller
         $draft = $request->boolean('save_as_draft');
         $data = $this->validated($request, $draft);
 
-        $preRegistration = DB::transaction(function () use ($data, $draft, $request): MemberPreRegistration {
+        $signaturePath = $this->storeSignature($data['member_signature'] ?? null);
+        unset($data['member_signature']);
+
+        try {
+            $preRegistration = DB::transaction(function () use ($data, $draft, $request, $signaturePath): MemberPreRegistration {
             $review = $this->reviewInput($data, $draft, $request);
             unset($data['review_decision'], $data['review_observations']);
             $preRegistration = MemberPreRegistration::create([
@@ -46,13 +55,23 @@ class MemberPreRegistrationController extends Controller
                 'location_id' => $this->locationId($request),
                 'created_by_user_id' => $request->user()->id,
                 'status' => $draft ? MemberPreRegistrationStatus::Draft : $this->statusFor($data['intake']),
+                'consent_version' => $draft ? null : self::CONSENT_VERSION,
+                'consent_accepted_at' => $draft ? null : now(),
+                'member_signature_path' => $signaturePath,
             ]);
             $this->recordInitialReview($preRegistration, $review, $request);
 
             return $preRegistration;
         });
+        } catch (\Throwable $exception) {
+            if ($signaturePath) {
+                Storage::disk('local')->delete($signaturePath);
+            }
 
-        return to_route('pre-registrations.show', $preRegistration)->with('status', $draft ? 'Prealta guardada como borrador.' : 'Prealta registrada.');
+            throw $exception;
+        }
+
+        return $this->afterPersistence($request, $preRegistration, $draft);
     }
 
     public function show(Request $request, MemberPreRegistration $preRegistration)
@@ -71,7 +90,7 @@ class MemberPreRegistrationController extends Controller
         $preRegistration = $this->preRegistration($request, $preRegistration);
         abort_unless($preRegistration->status === MemberPreRegistrationStatus::Draft, 409);
 
-        return $this->formView($preRegistration);
+        return $this->formView($preRegistration, $request);
     }
 
     public function update(Request $request, MemberPreRegistration $preRegistration)
@@ -82,17 +101,36 @@ class MemberPreRegistrationController extends Controller
         $draft = $request->boolean('save_as_draft');
         $data = $this->validated($request, $draft);
 
-        DB::transaction(function () use ($preRegistration, $data, $draft, $request): void {
+        $signaturePath = $this->storeSignature($data['member_signature'] ?? null);
+        unset($data['member_signature']);
+
+        try {
+            DB::transaction(function () use ($preRegistration, $data, $draft, $request, $signaturePath): void {
             $review = $this->reviewInput($data, $draft, $request);
             unset($data['review_decision'], $data['review_observations']);
-            $preRegistration->update([
+            $attributes = [
                 ...$data,
                 'status' => $draft ? MemberPreRegistrationStatus::Draft : $this->statusFor($data['intake']),
-            ]);
+            ];
+            if (! $draft) {
+                $attributes['consent_version'] = self::CONSENT_VERSION;
+                $attributes['consent_accepted_at'] = now();
+            }
+            if ($signaturePath) {
+                $attributes['member_signature_path'] = $signaturePath;
+            }
+            $preRegistration->update($attributes);
             $this->recordInitialReview($preRegistration, $review, $request);
         });
+        } catch (\Throwable $exception) {
+            if ($signaturePath) {
+                Storage::disk('local')->delete($signaturePath);
+            }
 
-        return to_route('pre-registrations.show', $preRegistration)->with('status', $draft ? 'Borrador actualizado.' : 'Prealta registrada.');
+            throw $exception;
+        }
+
+        return $this->afterPersistence($request, $preRegistration->refresh(), $draft);
     }
 
     public function resume(Request $request, MemberPreRegistration $preRegistration)
@@ -103,7 +141,16 @@ class MemberPreRegistrationController extends Controller
 
         $preRegistration->update(['status' => MemberPreRegistrationStatus::RequiresReview]);
 
-        return to_route('pre-registrations.show', $preRegistration)->with('status', 'Prealta retomada para una nueva revisión.');
+        return to_route('pre-registrations.show', $preRegistration)->with('status', 'Alta retomada para una nueva revisión.');
+    }
+
+    public function finalize(Request $request, MemberPreRegistration $preRegistration)
+    {
+        $this->requireRole($request, OrganizationRole::Owner, OrganizationRole::Admin, OrganizationRole::Trainer, OrganizationRole::Receptionist);
+        $this->preRegistration($request, $preRegistration);
+        $member = app(MemberPreRegistrationFinalizer::class)->finalize($preRegistration, $this->organization($request), $request->user());
+
+        return to_route('miembros.show', $member)->with('status', 'Miembro dado de alta correctamente.');
     }
 
     private function validated(Request $request, bool $draft): array
@@ -119,6 +166,19 @@ class MemberPreRegistrationController extends Controller
         $answerRules = $draft
             ? ['nullable', 'boolean']
             : ['required', 'boolean'];
+        $signatureRules = $draft
+            ? ['nullable']
+            : ['required', 'string', 'max:700000', function (string $attribute, mixed $value, \Closure $fail): void {
+                if (! is_string($value) || ! preg_match('/^data:image\\/png;base64,([A-Za-z0-9+\\/=\\s]+)$/', $value, $matches)) {
+                    $fail('La firma del miembro no es válida.');
+
+                    return;
+                }
+                $signature = base64_decode(preg_replace('/\\s+/', '', $matches[1]), true);
+                if ($signature === false || strlen($signature) > 512000 || ! str_starts_with($signature, "\x89PNG\r\n\x1a\n")) {
+                    $fail('La firma del miembro no es válida.');
+                }
+            }];
 
         $validated = $request->validate([
             'first_name' => [...$personalFieldRules, 'string', 'max:120', 'regex:/^[\p{L}\p{M}]+(?:[ \'’\-][\p{L}\p{M}]+)*$/u'],
@@ -144,10 +204,7 @@ class MemberPreRegistrationController extends Controller
             'objectives.*' => ['string', Rule::in(self::OBJECTIVE_VALUES)],
             'other_objective' => ['nullable', 'string', 'max:255'],
             'goal_date' => ['nullable', 'date'],
-            'desired_start_on' => ['nullable', 'date'],
-            'thinking_about_start' => ['nullable', 'string', 'max:255'],
             'objective_importance' => ['nullable', 'integer', 'between:1,10'],
-            'body_image_rating' => ['nullable', 'integer', 'between:1,10'],
             'current_exercise' => ['nullable', 'string', 'max:10'],
             'current_exercise_type' => ['nullable', 'string', 'max:2000'],
             'current_exercise_frequency' => ['nullable', 'integer', 'between:1,7'],
@@ -173,6 +230,9 @@ class MemberPreRegistrationController extends Controller
             'pregnancy' => ['nullable', 'boolean'],
             'review_decision' => ['nullable', Rule::enum(MemberPreRegistrationReviewDecision::class)],
             'review_observations' => ['nullable', 'string', 'max:5000'],
+            'informed_consent_accepted' => $draft ? ['nullable'] : ['required', 'accepted'],
+            'risk_assumption_accepted' => $draft ? ['nullable'] : ['required', 'accepted'],
+            'member_signature' => $signatureRules,
             'caaf' => $caafRules,
             'caaf.heart_condition' => $answerRules,
             'caaf.chest_activity' => $answerRules,
@@ -222,10 +282,7 @@ class MemberPreRegistrationController extends Controller
             'objectives',
             'other_objective',
             'goal_date',
-            'desired_start_on',
-            'thinking_about_start',
             'objective_importance',
-            'body_image_rating',
             'current_exercise',
             'current_exercise_type',
             'current_exercise_frequency',
@@ -325,13 +382,41 @@ class MemberPreRegistrationController extends Controller
         return $preRegistration;
     }
 
-    private function formView(MemberPreRegistration $preRegistration)
+    private function afterPersistence(Request $request, MemberPreRegistration $preRegistration, bool $draft)
+    {
+        if (! $draft && $preRegistration->status === MemberPreRegistrationStatus::ReadyForFinalization) {
+            $member = app(MemberPreRegistrationFinalizer::class)->finalize($preRegistration, $this->organization($request), $request->user());
+
+            return to_route('miembros.show', $member)->with('status', 'Miembro dado de alta correctamente.');
+        }
+
+        return to_route('pre-registrations.show', $preRegistration)->with('status', $draft ? 'Borrador guardado.' : 'Alta pendiente de revisión.');
+    }
+
+    private function storeSignature(?string $signature): ?string
+    {
+        if (! $signature) {
+            return null;
+        }
+
+        [, $encoded] = explode(',', $signature, 2);
+        $path = 'member-signatures/'.Str::uuid().'.png';
+
+        if (! Storage::disk('local')->put($path, base64_decode(preg_replace('/\s+/', '', $encoded), true))) {
+            throw ValidationException::withMessages(['member_signature' => 'No se pudo guardar la firma del miembro.']);
+        }
+
+        return $path;
+    }
+
+    private function formView(MemberPreRegistration $preRegistration, Request $request)
     {
         return view('members.form', [
             'member' => $preRegistration,
             'preRegistration' => $preRegistration,
             'preRegistrationMode' => true,
             'statuses' => MemberStatus::cases(),
+            'canReview' => in_array($this->membership($request)->role, [OrganizationRole::Owner, OrganizationRole::Admin, OrganizationRole::Trainer], true),
         ]);
     }
 }

@@ -48,16 +48,15 @@ function registerPayment(Member $member, int $sessions): void
     ])->assertRedirect();
 }
 
-test('manual registration forces registered, zero sessions, and system registration date', function () {
-    $response = $this->post(route('miembros.store'), [
+test('a registered member starts with zero sessions and a system registration date', function () {
+    $member = Member::create([
+        'organization_id' => $this->organization->id,
         'first_name' => 'Lucía',
         'last_name' => 'Martín',
-        'status' => MemberStatus::Active->value,
-        'started_on' => now()->subYear()->toDateString(),
-        'sessions_remaining' => 99,
+        'status' => MemberStatus::Registered,
+        'started_on' => today(),
+        'sessions_remaining' => 0,
     ]);
-
-    $member = Member::query()->sole();
 
     expect($member->status)->toBe(MemberStatus::Registered)
         ->and($member->sessions_remaining)->toBe(0)
@@ -67,8 +66,6 @@ test('manual registration forces registered, zero sessions, and system registrat
             'available_sessions' => 0,
             'pending_sessions' => 0,
         ]);
-
-    $response->assertRedirect(route('miembros.show', $member));
 });
 
 test('member list uses created at for current month registrations', function () {

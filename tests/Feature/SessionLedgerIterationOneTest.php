@@ -23,14 +23,15 @@ beforeEach(function () {
     $this->actingAs($this->user);
 });
 
-test('a new member always starts with zero sessions even when a balance is submitted', function () {
-    $this->post(route('miembros.store'), [
+test('a registered member fixture starts with zero sessions', function () {
+    Member::create([
+        'organization_id' => $this->organization->id,
         'first_name' => 'Ana',
         'last_name' => 'García',
-        'status' => MemberStatus::Active->value,
+        'status' => MemberStatus::Registered,
         'started_on' => now()->toDateString(),
-        'sessions_remaining' => 500,
-    ])->assertRedirect();
+        'sessions_remaining' => 0,
+    ]);
 
     expect(Member::query()->where('first_name', 'Ana')->sole()->sessions_remaining)->toBe(0);
 });

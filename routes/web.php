@@ -32,15 +32,16 @@ Route::middleware(['auth', 'verified', 'platform.admin'])->put('plataforma/perfi
 
 Route::middleware(['auth', 'verified', 'organization.access'])->group(function () {
     Route::get('dashboard', DashboardController::class)->name('dashboard');
-    Route::resource('prealtas', MemberPreRegistrationController::class)
-        ->parameters(['prealtas' => 'preRegistration'])
+    Route::resource('miembros/altas', MemberPreRegistrationController::class)
+        ->parameters(['altas' => 'preRegistration'])
         ->names('pre-registrations')
-        ->only(['create', 'store', 'show', 'edit', 'update']);
-    Route::post('prealtas/{preRegistration}/retomar', [MemberPreRegistrationController::class, 'resume'])->name('pre-registrations.resume');
-    Route::post('prealtas/{preRegistration}/revisiones', [MemberPreRegistrationReviewController::class, 'store'])->name('pre-registrations.reviews.store');
+        ->only(['store', 'show', 'edit', 'update']);
+    Route::post('miembros/altas/{preRegistration}/retomar', [MemberPreRegistrationController::class, 'resume'])->name('pre-registrations.resume');
+    Route::post('miembros/altas/{preRegistration}/revisiones', [MemberPreRegistrationReviewController::class, 'store'])->name('pre-registrations.reviews.store');
+    Route::post('miembros/altas/{preRegistration}/finalizar', [MemberPreRegistrationController::class, 'finalize'])->name('pre-registrations.finalize');
     Route::resource('miembros', MemberController::class)
         ->parameters(['miembros' => 'member'])
-        ->except('destroy');
+        ->except(['destroy', 'store']);
     Route::delete('miembros/{member}/fotos/{photo}', [MemberController::class, 'destroyPhoto'])->name('members.photos.destroy');
     Route::get('miembros/{member}/carnet', [MemberCardController::class, 'show'])->name('members.card.show');
     Route::post('miembros/{member}/carnet/regenerar', [MemberCardController::class, 'regenerate'])->name('members.card.regenerate');

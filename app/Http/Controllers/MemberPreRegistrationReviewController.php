@@ -7,6 +7,7 @@ use App\Enums\MemberPreRegistrationStatus;
 use App\Enums\OrganizationRole;
 use App\Http\Controllers\Concerns\InteractsWithOrganization;
 use App\Models\MemberPreRegistration;
+use App\Services\MemberPreRegistrationFinalizer;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
@@ -41,6 +42,13 @@ class MemberPreRegistrationReviewController extends Controller
                     : MemberPreRegistrationStatus::OnHold,
             ]);
         });
+
+        $preRegistration->refresh();
+        if ($decision === MemberPreRegistrationReviewDecision::CanContinue && $preRegistration->hasFinalizationEvidence()) {
+            $member = app(MemberPreRegistrationFinalizer::class)->finalize($preRegistration, $this->organization($request), $request->user());
+
+            return to_route('miembros.show', $member)->with('status', 'Miembro dado de alta correctamente.');
+        }
 
         return to_route('pre-registrations.show', $preRegistration)->with('status', 'Revisión registrada.');
     }

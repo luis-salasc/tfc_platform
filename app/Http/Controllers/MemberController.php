@@ -46,6 +46,7 @@ class MemberController extends Controller
             'preRegistration' => new MemberPreRegistration,
             'preRegistrationMode' => true,
             'statuses' => MemberStatus::cases(),
+            'canReview' => in_array($this->membership($request)->role, [OrganizationRole::Owner, OrganizationRole::Admin, OrganizationRole::Trainer], true),
         ]);
     }
 
@@ -78,6 +79,7 @@ class MemberController extends Controller
             'member' => $member,
             'canManage' => in_array($role, [OrganizationRole::Owner, OrganizationRole::Admin, OrganizationRole::Trainer], true),
             'canIssueCard' => in_array($role, [OrganizationRole::Owner, OrganizationRole::Admin, OrganizationRole::Trainer, OrganizationRole::Receptionist], true),
+            'initialMeasurementPending' => $member->progressEntries()->doesntExist(),
             'sessionSummary' => $ledger->summary($member),
         ]);
     }
@@ -128,7 +130,7 @@ class MemberController extends Controller
             'sex' => ['nullable', 'string', 'max:30'], 'discovery_channel' => ['nullable', 'string', 'max:80'], 'discovery_detail' => ['nullable', 'string', 'max:255'],
             'occupation' => ['nullable', 'string', 'max:160'], 'desired_start_on' => ['nullable', 'date'],
             'objectives' => ['nullable', 'array'], 'objectives.*' => ['string', 'max:100'], 'other_objective' => ['nullable', 'string', 'max:255'], 'goal_date' => ['nullable', 'date'],
-            'thinking_about_start' => ['nullable', 'string', 'max:255'], 'objective_importance' => ['nullable', 'integer', 'between:1,10'], 'body_image_rating' => ['nullable', 'integer', 'between:1,10'],
+            'thinking_about_start' => ['nullable', 'string', 'max:255'], 'objective_importance' => ['nullable', 'integer', 'between:1,10'],
             'current_exercise' => ['nullable', 'string', 'max:10'], 'current_exercise_type' => ['nullable', 'string', 'max:2000'], 'current_exercise_frequency' => ['nullable', 'integer', 'min:1', 'max:7'], 'current_exercise_duration' => ['nullable', 'string', 'max:100'], 'current_exercise_duration_unit' => ['nullable', 'string', 'max:20'], 'current_exercise_results' => ['nullable', 'string', 'max:10'],
             'past_exercise' => ['nullable', 'string', 'max:10'], 'past_exercise_type' => ['nullable', 'string', 'max:2000'], 'past_exercise_frequency' => ['nullable', 'integer', 'min:1', 'max:7'], 'past_exercise_since' => ['nullable', 'string', 'max:100'], 'past_exercise_since_unit' => ['nullable', 'string', 'max:20'], 'past_exercise_duration' => ['nullable', 'string', 'max:100'], 'past_exercise_duration_unit' => ['nullable', 'string', 'max:20'], 'past_exercise_results' => ['nullable', 'string', 'max:10'], 'past_exercise_reason' => ['nullable', 'string', 'max:2000'],
             'barriers' => ['nullable', 'array'], 'barriers.*' => ['string', 'max:100'], 'barriers_still_active' => ['nullable', 'boolean'], 'preferred_training_times' => ['nullable', 'array'], 'preferred_training_times.*' => ['in:m,t'], 'preferred_training_ranges' => ['nullable', 'array'], 'preferred_training_ranges.*.from' => ['nullable', 'date_format:H:i'], 'preferred_training_ranges.*.to' => ['nullable', 'date_format:H:i'], 'injury_notes' => ['nullable', 'string', 'max:5000'],
@@ -138,7 +140,7 @@ class MemberController extends Controller
             'photo_front' => ['nullable', 'image', 'max:10240'], 'photo_side' => ['nullable', 'image', 'max:10240'], 'photo_back' => ['nullable', 'image', 'max:10240'],
         ]);
 
-        $intakeKeys = ['sex', 'discovery_channel', 'discovery_detail', 'occupation', 'desired_start_on', 'objectives', 'other_objective', 'goal_date', 'thinking_about_start', 'objective_importance', 'body_image_rating', 'current_exercise', 'current_exercise_type', 'current_exercise_frequency', 'current_exercise_duration', 'current_exercise_duration_unit', 'current_exercise_results', 'past_exercise', 'past_exercise_type', 'past_exercise_frequency', 'past_exercise_since', 'past_exercise_since_unit', 'past_exercise_duration', 'past_exercise_duration_unit', 'past_exercise_results', 'past_exercise_reason', 'barriers', 'barriers_still_active', 'preferred_training_times', 'preferred_training_ranges', 'injury_notes', 'medical_notes', 'pregnancy', 'caaf', 'trainer_intake_reviewed'];
+        $intakeKeys = ['sex', 'discovery_channel', 'discovery_detail', 'occupation', 'desired_start_on', 'objectives', 'other_objective', 'goal_date', 'thinking_about_start', 'objective_importance', 'current_exercise', 'current_exercise_type', 'current_exercise_frequency', 'current_exercise_duration', 'current_exercise_duration_unit', 'current_exercise_results', 'past_exercise', 'past_exercise_type', 'past_exercise_frequency', 'past_exercise_since', 'past_exercise_since_unit', 'past_exercise_duration', 'past_exercise_duration_unit', 'past_exercise_results', 'past_exercise_reason', 'barriers', 'barriers_still_active', 'preferred_training_times', 'preferred_training_ranges', 'injury_notes', 'medical_notes', 'pregnancy', 'caaf', 'trainer_intake_reviewed'];
         $metricKeys = ['weight_kg', 'height_cm', 'body_fat_percentage', 'muscle_mass_kg', 'water_percentage', 'visceral_fat', 'metabolic_age', 'waist_cm', 'hip_cm', 'chest_cm', 'arm_cm', 'leg_cm'];
         $photos = [];
         foreach (['photo_front', 'photo_side', 'photo_back'] as $field) {
