@@ -58,6 +58,7 @@ Route::middleware(['auth', 'verified', 'organization.access'])->group(function (
     Route::put('pagos/{payment}/editar', [MemberPaymentController::class, 'update'])->name('payments.update');
     Route::post('pagos/{payment}/reenviar-justificante', [MemberPaymentController::class, 'resendReceipt'])->name('payments.receipt.resend');
     Route::get('asistencias', [AttendanceController::class, 'index'])->name('attendance.index');
+    Route::get('asistencias/buscar-miembros', [AttendanceController::class, 'search'])->name('attendance.members.search');
     Route::post('asistencias', [AttendanceController::class, 'store'])->name('attendance.store');
     Route::get('pagos', [PaymentsController::class, 'index'])->name('payments.index');
     Route::get('configuracion', [SettingsController::class, 'edit'])->name('club-settings.edit');

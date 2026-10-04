@@ -37,7 +37,47 @@ class AttendanceController extends Controller
             $query->whereHas('checkedInBy', fn ($users) => $users->where('name', 'like', "%{$term}%")->orWhere('email', 'like', "%{$term}%"));
         }
 
-        return view('attendance.index', ['attendances' => $query->latest('checked_in_at')->paginate(25)->withQueryString(), 'members' => Member::forOrganization($this->organization($request))->whereIn('status', [MemberStatus::Registered, MemberStatus::Active])->orderBy('first_name')->limit(200)->get(['id', 'first_name', 'last_name', 'national_id'])]);
+        return view('attendance.index', ['attendances' => $query->latest('checked_in_at')->paginate(25)->withQueryString()]);
+    }
+
+    public function search(Request $request)
+    {
+        $this->requireRole($request, OrganizationRole::Owner, OrganizationRole::Admin, OrganizationRole::Trainer, OrganizationRole::Receptionist);
+
+        $data = $request->validate(['q' => ['nullable', 'string', 'max:100']]);
+        $term = trim($data['q'] ?? '');
+
+        if (mb_strlen($term) < 2) {
+            return response()->json(['data' => []]);
+        }
+
+        $members = Member::forOrganization($this->organization($request))
+            ->whereIn('status', [MemberStatus::Registered, MemberStatus::Active])
+            ->where(function ($query) use ($term): void {
+                foreach (preg_split('/\s+/', $term) as $token) {
+                    $like = "%{$token}%";
+                    $query->where(fn ($member) => $member
+                        ->where('first_name', 'like', $like)
+                        ->orWhere('last_name', 'like', $like)
+                        ->orWhere('national_id', 'like', $like)
+                        ->orWhere('phone', 'like', $like));
+                }
+            })
+            ->orderBy('first_name')
+            ->orderBy('last_name')
+            ->limit(10)
+            ->get(['id', 'first_name', 'last_name', 'national_id', 'phone', 'status', 'intake']);
+
+        return response()->json([
+            'data' => $members->map(fn (Member $member) => [
+                'id' => $member->id,
+                'name' => trim("{$member->first_name} {$member->last_name}"),
+                'document' => trim(implode(' · ', array_filter([data_get($member->intake, 'document_type'), $member->national_id]))),
+                'phone' => $member->phone,
+                'status' => $member->status->label(),
+                'available_sessions' => max($this->ledger->mathematicalBalance($member), 0),
+            ]),
+        ]);
     }
 
     public function store(Request $request)
