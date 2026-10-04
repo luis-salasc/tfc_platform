@@ -38,6 +38,11 @@ class Organization extends Model
         return $this->hasMany(OrganizationMembership::class);
     }
 
+    public function members(): HasMany
+    {
+        return $this->hasMany(Member::class);
+    }
+
     protected function casts(): array
     {
         return [
