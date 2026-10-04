@@ -1,209 +1,96 @@
-# The Fitness Club CRM — Instrucciones para agentes
+# TFC Platform — instrucciones para agentes
 
-## Contexto técnico
+## Contexto del proyecto
 
-- Laravel 13 con PHP >= 8.3.
-- Blade, Livewire 4 y Flux.
-- Vite y Tailwind CSS.
-- MariaDB/MySQL como base de datos principal.
-- Monolito Laravel multiempresa; `organization_id` es la frontera de datos.
-- Fortify gestiona la autenticación y Spatie Permission los permisos.
-- Las sesiones y la cache usan actualmente la base de datos.
-- El sistema legacy solo es una fuente de importación de datos.
-- No existe una API pública actualmente.
-- No hay Redis, Horizon, WebSockets ni una necesidad actual de workers permanentes.
-- La producción futura será Ubuntu 24.04 con Nginx, PHP-FPM y MariaDB.
-- Docker no es una decisión tomada: no debe introducirse sin aprobación explícita.
+- Laravel 13, PHP >= 8.3, Blade, Livewire, Flux, Vite y Tailwind.
+- MariaDB/MySQL es la base de datos principal.
+- TFC Platform usa un único codebase y un deployment/base de datos independiente por cliente.
+- Cada instalación tiene una `Organization` principal y puede tener varias `Location` (sedes).
+- Esta es una arquitectura single-tenant por instalación, multisede y con codebase compartido; no es un SaaS multi-tenant compartiendo una base entre clientes.
+- El esquema conserva `organization_id` y capacidad técnica residual para más de una organización. No elimines `organization_id`: funciona como raíz de configuración y límite defensivo/referencial.
+- El sistema legacy es una fuente de importación, no el origen operativo principal.
+- No existe actualmente una API pública estable.
+- No introducir Docker, Redis, Horizon, WebSockets, Kubernetes ni workers permanentes sin aprobación explícita.
 
-## Principios generales
+## Principios de trabajo
 
-Codex debe:
+Antes de una tarea no trivial:
 
-- Inspeccionar antes de modificar y entender el código existente antes de proponer una implementación.
-- Preferir cambios pequeños, verificables, mantenibles, seguros y simples.
-- Evitar refactors no solicitados, dependencias innecesarias y tecnologías nuevas sin justificación.
-- Respetar los patrones existentes del proyecto.
-- No asumir requisitos no documentados; debe indicar claramente cualquier suposición.
+1. Inspecciona el código y el estado Git.
+2. Explica el diagnóstico y el plan mínimo.
+3. Identifica archivos que se modificarán.
+4. Implementa solo el alcance autorizado.
+5. Ejecuta verificaciones proporcionales al riesgo.
+6. Informa exactamente qué cambió y qué queda pendiente.
 
-## Forma de trabajo
-
-Antes de implementar una tarea no trivial:
-
-1. Inspeccionar los archivos relevantes.
-2. Explicar brevemente el diagnóstico.
-3. Proponer un plan pequeño.
-4. Identificar los archivos que pretende modificar.
-5. Implementar solamente lo necesario.
-6. Ejecutar las comprobaciones apropiadas.
-7. Informar exactamente qué cambió y qué queda pendiente.
-
-No debe ampliar silenciosamente el alcance de una tarea.
+No asumas requisitos no documentados ni conviertas deuda técnica en arquitectura nueva sin decisión expresa.
 
 ## Git
 
-El repositorio es la fuente de verdad.
-
-- Nunca hacer `commit`, `push`, `merge`, `rebase`, `reset`, `checkout` destructivo ni `force push` sin autorización explícita.
-- Nunca descartar cambios existentes del usuario.
-- Comprobar `git status` antes de trabajos importantes.
-- Avisar si hay archivos modificados o sin seguimiento relacionados con la tarea.
-- Mantener los cambios pequeños para que puedan revisarse.
-- No incluir secretos, `.env`, credenciales, dumps de base de datos, claves privadas ni archivos sensibles en Git.
+- No hagas `commit`, `push`, `merge`, `rebase`, `reset`, `restore`, `checkout` destructivo, `clean` ni `force push` sin autorización explícita.
+- Comprueba `git status` antes de trabajos importantes.
+- No descartes cambios existentes del usuario.
+- No incluyas `.env`, secretos, credenciales, dumps, uploads privados, claves, `vendor/`, `node_modules/`, `public/build/` ni runtime generado.
+- Usa staging explícito por archivo/hunk cuando se autorice un commit.
 
 ## Base de datos
 
-- La base de datos principal es MariaDB/MySQL. No sustituirla por PostgreSQL.
-- No asumir que SQLite reproduce correctamente el comportamiento de producción.
-- Preservar foreign keys, transacciones e integridad de datos.
-- Considerar concurrencia e idempotencia en operaciones económicas, asistencias y migraciones.
-- No ejecutar migraciones destructivas ni modificar datos reales sin autorización.
-- Tratar toda migración como un cambio especialmente sensible.
+- Conserva foreign keys, transacciones, aislamiento e idempotencia.
+- No ejecutes migraciones destructivas ni modifiques datos sin autorización.
+- No uses `migrate:fresh`, `db:wipe`, resets masivos o rollbacks globales como atajo.
+- MariaDB es el motor de referencia. La suite usa SQLite en memoria y no reproduce todos los defaults, locks, modos SQL ni restricciones de MariaDB; las migraciones y consultas sensibles al motor deben validarse también contra MariaDB.
 
-## Multiempresa
+## Organización y autorización
 
-`organization_id` es una frontera de seguridad.
+`OrganizationMembership` aporta el contexto y rol organizativo; Spatie Permission aporta permisos materializados. `User::canWithinOrganization()` y `InteractsWithOrganization::requirePermission()`/`requireRole()` implementan la decisión efectiva actual. La convivencia de ambos mecanismos es deuda técnica conocida: no la resuelvas transversalmente dentro de una feature aislada.
 
-Todo código que acceda a datos de organizaciones debe revisar explícitamente:
+Las consultas operativas deben filtrar explícitamente por `organization_id` y, cuando aplique, por `location_id`. El route model binding no filtra por organización por sí solo.
 
-- aislamiento entre organizaciones;
-- autorización;
-- queries correctamente acotadas;
-- relaciones Eloquent;
-- validaciones;
-- tests de aislamiento cuando correspondan.
+## Dominio vigente
 
-Nunca resolver un problema multiempresa eliminando filtros o comprobaciones de autorización.
+- `User` es usuario interno del CRM; `Member` es cliente del centro y no una cuenta CRM reducida.
+- La alta visible es `/miembros/crear` → `/miembros/altas` → `MemberPreRegistration` interno → revisión si procede → evidencia/firma → `MemberPreRegistrationFinalizer` → `Member` `REGISTERED`.
+- `POST /miembros` no es una vía pública de creación y no debe reabrirse.
+- `SessionLedger`, `SessionMovement` y `SessionSettlement` son la base de saldo y regularización; `sessions_remaining` es una proyección/cache operativa.
+- Attendance permite búsqueda limitada y check-in de `REGISTERED`/`ACTIVE`; un check-in sin saldo genera regularización pendiente.
+- Member Portal está fuera del MVP y deshabilitado por defecto. No lo habilites, no lo presentes como seguro y no corrijas su identidad legacy fuera de una tarea específica.
+
+## Fechas y frontend
+
+- Almacena timestamps en UTC cuando corresponda.
+- La timezone de negocio pertenece a `Location` y debe ser IANA (`Europe/Madrid`, etc.).
+- Usa Carbon/DateTimeZone para conversión por instante y DST.
+- No uses offsets actuales o fijos para fechas históricas.
+- Timeclock calcula límites UTC por día local y no depende de `CONVERT_TZ` ni de timezone tables de MariaDB.
+- La UI española debe presentar fechas como `04/10/2026` y horas locales; ISO/UTC solo en campos o rutas donde sea técnicamente necesario.
+- Mantén Blade, Livewire, Flux, Tailwind y Vite. No introduzcas otro framework frontend sin decisión.
 
 ## Seguridad y privacidad
 
-El CRM contiene información personal y potencialmente sensible.
-
-- Aplicar mínimo privilegio.
-- Evitar exposición pública de archivos privados.
-- No registrar secretos ni información sensible innecesariamente.
-- Mantener CSRF, autenticación y autorización.
-- Validar uploads y no confiar en datos enviados por el cliente.
-- Usar las protecciones de Laravel cuando sean adecuadas.
-- Señalar explícitamente cambios que afecten autenticación, permisos, pagos, datos médicos, fotografías o aislamiento multiempresa.
+- Mantén autenticación, autorización, CSRF, validación, rate limits y cabeceras.
+- Aplica mínimo privilegio a datos personales y de salud.
+- No expongas archivos privados ni registres secretos o datos sensibles innecesariamente.
+- Señala explícitamente cambios que afecten pagos, salud, fotografías, identidad, Portal o aislamiento organizativo.
 
 ## Pagos y operaciones económicas
 
-Los pagos y saldos son dominio crítico.
-
-- Usar transacciones cuando corresponda.
-- Considerar concurrencia e idempotencia.
-- Evitar operaciones parciales.
-- Separar efectos secundarios, como correo, de la integridad de la transacción.
-- Nunca ocultar errores económicos mediante manejo genérico de excepciones.
-
-## Laravel
-
-Preferir:
-
-- Convenciones estándar de Laravel.
-- Form Requests para validación cuando resulte apropiado.
-- Policies o Gates para centralizar autorización cuando ayuden.
-- Eloquent y relaciones claras.
-- Servicios solo cuando exista una responsabilidad real que extraer.
-- Configuración mediante `config` y variables de entorno.
-- Tests para comportamiento crítico.
-
-Evitar:
-
-- abstracciones prematuras;
-- repositories genéricos sin necesidad;
-- service layers vacíos;
-- patrones enterprise innecesarios;
-- lógica de negocio importante dentro de vistas Blade.
-
-## Frontend
-
-Mantener el stack actual:
-
-- Blade;
-- Livewire;
-- Flux;
-- Tailwind;
-- Vite.
-
-No introducir React, Vue, Angular, TypeScript ni otro framework frontend sin decisión explícita. Priorizar componentes reutilizables solo cuando exista repetición real, no anticipada.
+Usa transacciones, locks e idempotencia donde corresponda. Conserva auditoría de cambios y separa efectos secundarios como correo de la integridad de la operación. No ocultes errores económicos con excepciones genéricas.
 
 ## Tests y calidad
 
-Para cada cambio, determinar qué comprobaciones son razonables.
-
-El proyecto dispone de Pest/PHPUnit, Laravel Pint, Larastan/PHPStan y GitHub Actions.
-
-- Ejecutar primero los tests relacionados cuando sea posible.
-- Ampliar a una suite mayor cuando el riesgo lo justifique.
-- No afirmar que algo funciona si no se ha comprobado.
-- Diferenciar claramente entre «implementado» y «verificado».
-- No modificar tests solo para hacerlos pasar si el comportamiento esperado es correcto.
+- Ejecuta primero tests focalizados y luego una suite proporcional.
+- No modifiques tests solo para ocultar un fallo.
+- Distingue siempre entre implementado y verificado.
+- Pint, PHPStan y CI son comprobaciones independientes de los tests funcionales.
 
 ## Producción
 
-Producción es un entorno protegido.
+La producción prevista usa Ubuntu 24.04, Nginx, PHP-FPM y MariaDB. No ejecutes comandos contra producción sin autorización explícita. Exige `APP_DEBUG=false`, HTTPS, document root en `public/`, secretos separados, backups externos, acceso MariaDB no público y restauración verificada.
 
-- No asumir acceso al VPS.
-- No ejecutar comandos contra producción salvo petición y autorización explícitas.
-- Explicar previamente cualquier comando potencialmente destructivo.
-- Favorecer procedimientos reproducibles y reversibles.
-- Contemplar backup y rollback en cambios de riesgo.
-- No habilitar `APP_DEBUG` en producción.
-- No exponer MariaDB a Internet.
-- Mantener el document root del servidor web apuntando a `public/`.
+## Bloqueadores conocidos
 
-## Infraestructura
-
-No introducir automáticamente:
-
-- Docker;
-- Redis;
-- Horizon;
-- Kubernetes;
-- WebSockets;
-- microservicios;
-- colas;
-- nuevos servicios persistentes.
-
-Si alguno fuera necesario, explicar primero qué problema resuelve, por qué la arquitectura actual no basta, su coste operativo y la alternativa más sencilla.
-
-## Roles de trabajo
-
-Estos roles orientan el razonamiento, pero no autorizan trabajo paralelo ni cambios fuera del alcance de la tarea.
-
-### ARCHITECT
-
-Responsable de arquitectura, dominio, límites entre módulos, decisiones técnicas y coherencia global. No debe implementar cambios grandes antes de definir el problema.
-
-### BACKEND
-
-Responsable de Laravel, PHP, Eloquent, MariaDB, validación, servicios y lógica de negocio. Debe seguir las decisiones arquitectónicas existentes.
-
-### REVIEWER
-
-Responsable de revisar cambios, tests, regresiones, seguridad, aislamiento multiempresa y calidad. Debe intentar encontrar problemas, no limitarse a confirmar que la implementación parece correcta.
-
-### DEVOPS
-
-Responsable de despliegue, Ubuntu, Nginx, PHP-FPM, MariaDB, TLS, backups, logs y recuperación. Producción requiere autorización explícita antes de cualquier cambio.
-
-## Bloqueadores de producción conocidos
-
-Los siguientes puntos están documentados como bloqueadores conocidos y no deben considerarse resueltos hasta comprobarlos individualmente:
-
-- Estado Git no reproducible.
-- Incoherencia del modelo de permisos multiempresa.
-- Fotografías de miembros almacenadas públicamente.
-- Ausencia de bootstrap inicial de producción.
-- Riesgos de integridad y concurrencia en pagos y asistencias.
-- Envío síncrono de correo ligado a operaciones económicas.
-- Despliegue y recuperación de producción todavía no definidos.
-
-Esta lista es una advertencia, no autorización para corregir todos los puntos en una sola tarea.
+Siguen pendientes de resolución individual: fotografías públicas, datos sensibles demasiado amplios, bootstrap de producción, incoherencia de permisos, riesgos de concurrencia/integridad en pagos y asistencia, correo síncrono y despliegue/recuperación todavía no definidos.
 
 ## Regla fundamental
 
-Cuando exista conflicto entre hacer más cambios y hacer el cambio mínimo correcto y comprobable, preferir el cambio mínimo correcto y comprobable.
-
-Si una tarea revela un problema adicional importante, informarlo y dejarlo fuera del alcance salvo que sea imprescindible para completar de forma segura la tarea actual.
+Ante el conflicto entre hacer más cambios y hacer el cambio mínimo correcto y comprobable, elige el cambio mínimo correcto y comprobable. Si aparece un problema adicional importante, infórmalo y déjalo fuera salvo que sea imprescindible para completar con seguridad la tarea autorizada.

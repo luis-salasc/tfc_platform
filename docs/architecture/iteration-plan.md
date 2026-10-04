@@ -1,76 +1,49 @@
 # Plan de iteraciones y criterios de arquitectura
 
-## Principios no negociables
+Este documento separa el estado implementado del trabajo pendiente. No convierte una intención de roadmap en una funcionalidad disponible.
 
-- Un cliente es una organizacion; toda lectura y escritura operativa debe quedar aislada por organizacion y, cuando aplique, sede.
-- Ninguna pantalla decide reglas de negocio por si misma. Pagos, bonos, reservas, asistencia y kiosco usan servicios de dominio compartidos.
-- Los cambios economicos y de saldo son auditables. No se sobrescriben sin conservar el motivo, usuario y valores anteriores.
-- Las integraciones entran por contratos versionados, no por acceso directo a la base de datos.
-- La seguridad se aplica por capas: autenticacion, autorizacion, validacion, CSRF, rate limits, cabeceras, auditoria, pruebas y despliegue seguro.
-- Una funcion desactivada por plan no borra datos ni deja rutas accesibles.
+## Principios vigentes
 
-## Riesgos actuales que bloquean produccion
+- Un deployment y una base de datos independiente por cliente.
+- Una `Organization` raíz con múltiples `Location` posibles.
+- Un único codebase compartido entre instalaciones, sin forks normales por cliente.
+- Toda operación debe comprobar organización y, cuando aplique, sede.
+- Los cambios económicos y de saldo deben ser auditables y transaccionales.
+- La autorización, validación, CSRF, rate limits y despliegue seguro se aplican por capas.
+- Las funciones desactivadas no deben dejar rutas operativas accesibles.
 
-1. `sessions_remaining` mezcla bonos distintos y no permite caducidad ni trazabilidad de consumo.
-2. El kiosco publico usa un QR como credencial portadora y no esta vinculado a un dispositivo de sede.
-3. La autorizacion por organizacion se repite en controladores; debe centralizarse en policies y servicios.
-4. Pagos, asistencia y recibos no tienen aun un libro de movimientos ni auditoria completa.
-5. La cobertura de pruebas no protege los limites entre organizaciones, pagos, permisos y concurrencia.
+## Implementado
 
-## Iteracion 1 - Fundacion segura
+- Organización, sedes, usuarios internos y acceso autenticado.
+- Alta guiada mediante `MemberPreRegistration`, revisión append-only y finalización idempotente a `Member`.
+- Estados iniciales de Member y flujo de check-in.
+- Miembros, pagos, incidencias, progreso y planes de entrenamiento en su alcance actual.
+- `SessionLedger`, `SessionMovement`, `SessionSettlement` y regularización de asistencias sin saldo.
+- Búsqueda manual de miembros para asistencia, aislada por organización y limitada a diez resultados.
+- Kiosco QR público en su alcance actual.
+- Timeclock Iteración 1: eventos append-only, pausas, historial, detalle, timezone local y presentación española.
+- Timeclock Iteración 2: correcciones `ADD`/`CORRECT`/`ANNUL`, aprobación/rechazo, auditoría, reporting y pendientes.
+- Member Portal deshabilitado por defecto; su código se conserva fuera del MVP.
 
-Objetivo: impedir que la migracion siga acumulando deuda tecnica.
+## MVP pendiente
 
-- Documentar limites de modulos y dependencias.
-- Centralizar contexto de organizacion, permisos y pruebas de aislamiento.
-- Separar configuracion local, testing, staging y produccion.
-- Establecer cabeceras, politica de secretos, rate limits y registro de auditoria base.
-- Reparar flujos existentes que no cumplen el contrato de interfaz antes de ampliar funciones.
+- Privacidad y almacenamiento privado de fotografías.
+- Restricción por mínimo privilegio de datos sanitarios y sensibles.
+- Endurecimiento del kiosco con identidad de dispositivo y sede.
+- Validación funcional transversal contra MariaDB, concurrencia y aislamiento entre organizaciones.
+- Bootstrap reproducible de producción, staging, backups y restauración verificada.
+- Revisión de la convivencia entre `OrganizationMembership.role` y Spatie Permission.
+- Definición operativa de reservas, bonos y caducidad si son necesarios para el MVP.
 
-Criterio de salida: pruebas de autorizacion entre dos organizaciones, pruebas de seguridad de rutas, analisis estatico y despliegue reproducible en staging.
+## Post-MVP
 
-## Iteracion 2 - Bonos, pagos y caducidad
+- Portal de miembros con identidad separada y superficie restringida.
+- Bonos con caducidad, extensiones y consumo FIFO completo por bono.
+- Reservas, capacidad, lista de espera y no-show.
+- API privada versionada, scopes, OpenAPI e integraciones.
+- Funcionamiento degradado del kiosco.
+- Reporting agregado, comunicaciones con colas, retos y cartelería.
 
-Objetivo: sustituir el saldo global por bonos emitidos y movimientos inmutables.
+## Criterios de salida comunes
 
-- Productos de bono configurables y politica de caducidad.
-- Bono emitido con sesiones disponibles, activacion y vencimiento.
-- Consumo FIFO por vencimiento, extensiones auditadas y anulaciones/correcciones.
-- Pago y recibo como evidencia del movimiento, sin perder su historico.
-
-Criterio de salida: un miembro con varios bonos consume el correcto y una extension deja auditoria completa.
-
-## Iteracion 3 - Planificacion, reservas y asistencia
-
-Objetivo: unificar planificacion recurrente, huecos a demanda, capacidad y check-in.
-
-- Plantillas recurrentes, sesiones concretas y excepciones.
-- Reserva individual/grupal, lista de espera, cancelacion y no-show.
-- Control de capacidad con transacciones; nunca solo en interfaz.
-- Asistencia consume el bono al que esta vinculada la reserva.
-
-Criterio de salida: no es posible sobrepasar capacidad ni consumir un bono caducado.
-
-## Iteracion 4 - Kiosco e integraciones
-
-Objetivo: kiosco de sede y contrato de integracion seguro.
-
-- Credencial de dispositivo, sede asignada y permisos minimos.
-- QR/NFC como identificadores de miembro; adaptadores para tornos y lectores.
-- API privada `/api/v1`, scopes, rate limits, auditoria, idempotencia y OpenAPI.
-- Estrategia de funcionamiento degradado para conectividad limitada.
-
-## Iteracion 5 - Reporting, comunicaciones, retos y carteleria
-
-Objetivo: convertir datos operativos fiables en producto vendible.
-
-- Metricas agregadas y segmentos guardados; no consultas pesadas sobre operacion.
-- Comunicaciones con consentimiento, colas e historial.
-- Retos configurables, ranking y carteleria de solo lectura en tiempo real.
-
-## Produccion
-
-- Staging y produccion usan cuentas, bases, secretos y almacenamiento distintos.
-- Produccion no ejecuta seeders de desarrollo ni tests.
-- `APP_DEBUG=false`, HTTPS, cookies seguras, backups externos y restauracion verificada.
-- La base de datos no se expone publicamente; los accesos administrativos usan MFA y claves SSH.
+Una iteración se considera cerrada solo cuando sus tests relevantes, aislamiento organizativo, migraciones MariaDB cuando corresponda y procedimiento de despliegue están verificados. Los riesgos de producción deben permanecer explícitos hasta su resolución individual.

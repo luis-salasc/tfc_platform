@@ -1,5 +1,9 @@
 # Auditoría del alta de Member: evidencia y privacidad
 
+> **ESTADO: AUDITORÍA HISTÓRICA / SUPERADA**
+>
+> Este documento describe la auditoría del flujo anterior a la separación de `MemberPreRegistration`. El flujo actual está documentado en [current-state.md](architecture/current-state.md): la alta visible pasa por `/miembros/altas`, revisión cuando corresponde y `MemberPreRegistrationFinalizer`. No utilizar este documento como especificación vigente ni reabrir el POST directo de creación de Member.
+
 Fecha de auditoría: 3 de octubre de 2026. Alcance: inspección estática de `resources/views/members/form.blade.php`, `MemberController`, `Member`, migraciones, vistas de ficha, rutas, correo y tests relacionados. No se han inspeccionado ni modificado datos reales.
 
 ## 1. Flujo actual, paso por paso
