@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\MemberPreRegistrationStatus;
+use App\Enums\MemberPreRegistrationReviewDecision;
 use App\Enums\MembershipStatus;
 use App\Enums\MemberStatus;
 use App\Enums\OrganizationRole;
@@ -227,6 +228,123 @@ test('a triggering pre-registration cannot continue without its review decision 
     ]))->assertSessionHasErrors(['review_decision', 'review_observations']);
 
     expect(MemberPreRegistration::query()->count())->toBe(0);
+});
+
+test('a receptionist can create normal and review-required pre-registrations without recording a review', function () {
+    OrganizationMembership::query()->where('user_id', $this->user->id)->sole()->update([
+        'role' => OrganizationRole::Receptionist,
+    ]);
+
+    $this->post(route('pre-registrations.store'), preRegistrationPayload())->assertRedirect();
+    $this->post(route('pre-registrations.store'), preRegistrationPayload([
+        'caaf' => [
+            'heart_condition' => '0',
+            'chest_activity' => '0',
+            'chest_rest' => '0',
+            'dizziness' => '1',
+            'bones_joints' => '0',
+            'medication' => '0',
+            'other_reason' => '0',
+        ],
+    ]))->assertRedirect();
+
+    expect(MemberPreRegistration::query()->where('status', MemberPreRegistrationStatus::ReadyForFinalization)->count())->toBe(1)
+        ->and(MemberPreRegistration::query()->where('status', MemberPreRegistrationStatus::RequiresReview)->count())->toBe(1)
+        ->and(MemberPreRegistration::query()->where('status', MemberPreRegistrationStatus::RequiresReview)->sole()->reviews()->count())->toBe(0);
+});
+
+test('a receptionist cannot inject a review decision through the wizard', function () {
+    OrganizationMembership::query()->where('user_id', $this->user->id)->sole()->update([
+        'role' => OrganizationRole::Receptionist,
+    ]);
+
+    $this->post(route('pre-registrations.store'), preRegistrationPayload([
+        'pregnancy' => '1',
+        'review_decision' => MemberPreRegistrationReviewDecision::CanContinue->value,
+        'review_observations' => 'Intento no autorizado.',
+    ]))->assertForbidden();
+
+    expect(MemberPreRegistration::query()->doesntExist())->toBeTrue();
+});
+
+test('a receptionist cannot register a can continue review decision', function (): void {
+    $decision = MemberPreRegistrationReviewDecision::CanContinue;
+    OrganizationMembership::query()->where('user_id', $this->user->id)->sole()->update([
+        'role' => OrganizationRole::Receptionist,
+    ]);
+    $preRegistration = MemberPreRegistration::create([
+        'organization_id' => $this->organization->id,
+        'status' => MemberPreRegistrationStatus::RequiresReview,
+        'intake' => ['pregnancy' => true],
+    ]);
+
+    $this->post(route('pre-registrations.reviews.store', $preRegistration), [
+        'decision' => $decision->value,
+        'observations' => 'Intento no autorizado.',
+    ])->assertForbidden();
+
+    expect($preRegistration->refresh()->status)->toBe(MemberPreRegistrationStatus::RequiresReview)
+        ->and($preRegistration->reviews()->doesntExist())->toBeTrue();
+});
+
+test('an owner can record a review through the authorized endpoint', function (): void {
+    $role = OrganizationRole::Owner;
+    OrganizationMembership::query()->where('user_id', $this->user->id)->sole()->update([
+        'role' => $role,
+    ]);
+    $preRegistration = MemberPreRegistration::create([
+        'organization_id' => $this->organization->id,
+        'status' => MemberPreRegistrationStatus::RequiresReview,
+        'intake' => ['caaf' => ['heart_condition' => true]],
+    ]);
+
+    $this->post(route('pre-registrations.reviews.store', $preRegistration), [
+        'decision' => MemberPreRegistrationReviewDecision::CanContinue->value,
+        'observations' => 'Revisión autorizada.',
+    ])->assertRedirect();
+
+    expect($preRegistration->refresh()->status)->toBe(MemberPreRegistrationStatus::ReadyForFinalization)
+        ->and($preRegistration->reviews()->count())->toBe(1);
+});
+
+test('a receptionist cannot register a do not continue review decision', function (): void {
+    OrganizationMembership::query()->where('user_id', $this->user->id)->sole()->update([
+        'role' => OrganizationRole::Receptionist,
+    ]);
+    $preRegistration = MemberPreRegistration::create([
+        'organization_id' => $this->organization->id,
+        'status' => MemberPreRegistrationStatus::RequiresReview,
+        'intake' => ['pregnancy' => true],
+    ]);
+
+    $this->post(route('pre-registrations.reviews.store', $preRegistration), [
+        'decision' => MemberPreRegistrationReviewDecision::DoNotContinueForNow->value,
+        'observations' => 'Unauthorized attempt.',
+    ])->assertForbidden();
+
+    expect($preRegistration->refresh()->status)->toBe(MemberPreRegistrationStatus::RequiresReview)
+        ->and($preRegistration->reviews()->doesntExist())->toBeTrue();
+});
+
+test('admin and trainer can record a review through the authorized endpoint', function (): void {
+    foreach ([OrganizationRole::Admin, OrganizationRole::Trainer] as $role) {
+        OrganizationMembership::query()->where('user_id', $this->user->id)->sole()->update([
+            'role' => $role,
+        ]);
+        $preRegistration = MemberPreRegistration::create([
+            'organization_id' => $this->organization->id,
+            'status' => MemberPreRegistrationStatus::RequiresReview,
+            'intake' => ['caaf' => ['heart_condition' => true]],
+        ]);
+
+        $this->post(route('pre-registrations.reviews.store', $preRegistration), [
+            'decision' => MemberPreRegistrationReviewDecision::CanContinue->value,
+            'observations' => 'Authorized review.',
+        ])->assertRedirect();
+
+        expect($preRegistration->refresh()->status)->toBe(MemberPreRegistrationStatus::ReadyForFinalization)
+            ->and($preRegistration->reviews()->count())->toBe(1);
+    }
 });
 
 test('a review requires observations', function () {

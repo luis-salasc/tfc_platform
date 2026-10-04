@@ -38,7 +38,7 @@ class MemberPreRegistrationController extends Controller
         $data = $this->validated($request, $draft);
 
         $preRegistration = DB::transaction(function () use ($data, $draft, $request): MemberPreRegistration {
-            $review = $this->reviewInput($data, $draft);
+            $review = $this->reviewInput($data, $draft, $request);
             unset($data['review_decision'], $data['review_observations']);
             $preRegistration = MemberPreRegistration::create([
                 ...$data,
@@ -83,7 +83,7 @@ class MemberPreRegistrationController extends Controller
         $data = $this->validated($request, $draft);
 
         DB::transaction(function () use ($preRegistration, $data, $draft, $request): void {
-            $review = $this->reviewInput($data, $draft);
+            $review = $this->reviewInput($data, $draft, $request);
             unset($data['review_decision'], $data['review_observations']);
             $preRegistration->update([
                 ...$data,
@@ -277,9 +277,18 @@ class MemberPreRegistrationController extends Controller
             : MemberPreRegistrationStatus::ReadyForFinalization;
     }
 
-    private function reviewInput(array $data, bool $draft): ?array
+    private function reviewInput(array $data, bool $draft, Request $request): ?array
     {
+        $canReview = in_array($this->membership($request)->role, [OrganizationRole::Owner, OrganizationRole::Admin, OrganizationRole::Trainer], true);
+
+        if (! $canReview && (filled($data['review_decision'] ?? null) || filled($data['review_observations'] ?? null))) {
+            $this->requireRole($request, OrganizationRole::Owner, OrganizationRole::Admin, OrganizationRole::Trainer);
+        }
         if ($draft || $this->statusFor($data['intake']) !== MemberPreRegistrationStatus::RequiresReview) {
+            return null;
+        }
+
+        if (! $canReview) {
             return null;
         }
         if (blank($data['review_decision'] ?? null) || blank($data['review_observations'] ?? null)) {
